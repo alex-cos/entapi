@@ -16,6 +16,7 @@ func TestSearchEntreprise(t *testing.T) {
 	resp, err := api.SearchEntreprise("TF1")
 	assert.NoError(t, err)
 	assert.NotEmpty(t, resp)
+
 	if !testing.Short() {
 		fmt.Printf("resp = %+v\n", resp)
 	}

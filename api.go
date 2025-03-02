@@ -1,14 +1,14 @@
 package entapi
 
 import (
-	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"strconv"
 	"time"
+
+	"github.com/alex-cos/restc"
 )
 
 const (
@@ -16,8 +16,7 @@ const (
 )
 
 type GeoAPI struct {
-	client  *http.Client
-	timeout time.Duration
+	client  *restc.Client
 	limit   int32
 	perPage int32
 }
@@ -27,7 +26,7 @@ func New() *GeoAPI {
 }
 
 func NewWithClient(httpClient *http.Client) *GeoAPI {
-	return NewWithClientTimeout(httpClient, httpClient.Timeout)
+	return NewWithClientTimeout(httpClient, restc.DefaultTimeout)
 }
 
 func NewWithTimeout(timeout time.Duration) *GeoAPI {
@@ -36,16 +35,13 @@ func NewWithTimeout(timeout time.Duration) *GeoAPI {
 
 func NewWithClientTimeout(httpClient *http.Client, timeout time.Duration) *GeoAPI {
 	return &GeoAPI{
-		client:  httpClient,
-		timeout: timeout,
+		client:  restc.NewWithClientTimeout(APIURL, httpClient, timeout),
 		limit:   10,
 		perPage: 10,
 	}
 }
 
 func (api *GeoAPI) SearchEntreprise(text string) (*EntreprisesResponse, error) {
-	var entreprises *EntreprisesResponse
-
 	params := url.Values{
 		"q":                              {text},
 		"limite_matching_etablissements": {strconv.Itoa(int(api.limit))},
@@ -54,59 +50,25 @@ func (api *GeoAPI) SearchEntreprise(text string) (*EntreprisesResponse, error) {
 		"page":                           {"1"},
 		"per_page":                       {strconv.Itoa(int(api.perPage))},
 	}
-	reqURL := fmt.Sprintf("%s/search?%s", APIURL, params.Encode())
 
-	body, err := api.request(reqURL)
+	req := restc.Get("search").
+		SetHeader("Accept", "application/json").
+		SetQueryParamsFromValues(params).
+		SetResponseType(new(EntreprisesResponse))
+
+	resp, err := api.client.Execute(req)
 	if err != nil {
-		return entreprises, err
+		return nil, err
 	}
 
-	err = json.Unmarshal(body, &entreprises)
-	if err != nil {
-		return entreprises, err
+	if resp.IsError() {
+		return nil, fmt.Errorf("error server returned an http error: %s", resp.Status())
+	}
+
+	entreprises, ok := resp.Content().(*EntreprisesResponse)
+	if !ok {
+		return nil, errors.New("wrong expected type")
 	}
 
 	return entreprises, nil
-}
-
-// Unexported functions
-
-func (api *GeoAPI) request(reqURL string) ([]byte, error) {
-	ctx, cancel := api.getContext()
-	if cancel != nil {
-		defer cancel()
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
-	if err != nil {
-		return nil, ErrNewRequest(err)
-	}
-
-	resp, err := api.client.Do(req)
-	if err != nil {
-		return nil, ErrDoRequest(err)
-	}
-
-	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, ErrReadBody(http.MethodGet, reqURL, err)
-	}
-
-	if resp.StatusCode >= 400 {
-		return nil, ErrServerHTTPError(resp.StatusCode)
-	}
-
-	return body, nil
-}
-
-func (api *GeoAPI) getContext() (context.Context, context.CancelFunc) {
-	var cancel context.CancelFunc
-
-	ctx := context.Background()
-	if api.timeout > 0 {
-		ctx, cancel = context.WithTimeout(context.Background(), api.timeout)
-	}
-
-	return ctx, cancel
 }

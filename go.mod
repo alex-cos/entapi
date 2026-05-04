@@ -1,6 +1,6 @@
 module github.com/alex-cos/entapi
 
-go 1.23.5
+go 1.23.0
 
 require (
 	github.com/alex-cos/restc v1.0.3
